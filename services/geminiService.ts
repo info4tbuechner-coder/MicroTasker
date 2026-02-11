@@ -17,14 +17,19 @@ const responseSchema = {
       properties: {
         description: {
           type: Type.STRING,
-          description: "Eine kurze, klare Beschreibung der Aufgabe.",
+          description: "Kurzbeschreibung der Aufgabe.",
         },
         reward: {
           type: Type.NUMBER,
-          description: "Die Belohnung für die Erledigung der Aufgabe, zwischen 0.50 und 5.00.",
+          description: "Belohnung (0.50 - 5.00).",
         },
+        category: {
+          type: Type.STRING,
+          enum: ['photo', 'text', 'research', 'creative', 'technical'],
+          description: "Die Kategorie der Aufgabe.",
+        }
       },
-      required: ["description", "reward"],
+      required: ["description", "reward", "category"],
     },
 };
 
@@ -32,33 +37,31 @@ export const generateInitialTasks = async (): Promise<Omit<Task, 'id'>[]> => {
     try {
         const response = await ai.models.generateContent({
             model: "gemini-3-flash-preview",
-            contents: "Erstelle eine Liste mit 5 kreativen und realistischen Mikro-Aufgaben für eine App. Die Aufgaben sollten in einem Satz formuliert sein und einen Wert zwischen 0,50€ und 5€ haben.",
+            contents: "Erstelle 6 reale Mikro-Aufgaben für eine App. Mixe Kategorien. Sprache: Deutsch.",
             config: {
+                systemInstruction: "Du bist ein erfahrener Ops-Manager. Erstelle Aufgaben, die sinnvoll für KI-Training oder lokale Validierung sind.",
                 responseMimeType: "application/json",
                 responseSchema: responseSchema,
             },
         });
-
-        const jsonText = response.text.trim();
-        const tasks = JSON.parse(jsonText);
-
-        if (!Array.isArray(tasks)) {
-            throw new Error("Kein Array zurückgegeben.");
-        }
-
-        return tasks.map(task => ({
-            description: task.description || "Aufgabe ohne Titel",
-            reward: typeof task.reward === 'number' ? task.reward : 1.0,
-        }));
-
+        return JSON.parse(response.text.trim());
     } catch (error) {
         console.error("Gemini Error:", error);
         return [
-            { description: "Beweise, dass du ein Mensch bist (Captcha lösen)", reward: 0.50 },
-            { description: "Finde einen Rechtschreibfehler auf einer News-Seite", reward: 2.00 },
-            { description: "Schreibe ein 3-Satz Review für ein lokales Restaurant", reward: 1.50 },
-            { description: "Fasse diesen Text in 10 Wörtern zusammen", reward: 3.00 },
-            { description: "Bewerte die Lesbarkeit dieser App", reward: 1.00 },
+            { description: "Mache ein Foto von einem Menüboard", reward: 1.50, category: 'photo' },
+            { description: "Prüfe Barrierefreiheit am Bahnhof", reward: 2.00, category: 'research' },
         ];
+    }
+};
+
+export const getTaskHint = async (description: string): Promise<string> => {
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: `Gib mir einen hilfreichen, kurzen Profi-Tipp für diese Aufgabe: "${description}". Max 3 Sätze.`,
+        });
+        return response.text || "Keine Tipps verfügbar.";
+    } catch {
+        return "Verbinde dich mit dem Internet für KI-Tipps.";
     }
 };

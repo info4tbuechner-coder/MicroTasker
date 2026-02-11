@@ -1,161 +1,178 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Task } from './types';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Task, UserStats, AppState } from './types';
 import Header from './components/Header';
 import TaskForm from './components/TaskForm';
 import TaskList from './components/TaskList';
+import ProgressBar from './components/ProgressBar';
 import SkeletonTask from './components/SkeletonTask';
+import Toast from './components/Toast';
+import TaskDetailsModal from './components/TaskDetailsModal';
 import { generateInitialTasks } from './services/geminiService';
 
+const CACHE_TTL = 30 * 60 * 1000;
+const XP_PER_TASK = 10;
+
 const App: React.FC = () => {
-  // Persistence Initialization
-  const [balance, setBalance] = useState<number>(() => {
-    const saved = localStorage.getItem('tasker_balance');
-    return saved ? parseFloat(saved) : 20.00;
-  });
-  
-  const [tasks, setTasks] = useState<Task[]>(() => {
-    const saved = localStorage.getItem('tasker_tasks');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [isLoading, setIsLoading] = useState<boolean>(tasks.length === 0);
-  const [error, setError] = useState<string | null>(null);
-  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-
-  // Sync to LocalStorage
-  useEffect(() => {
-    localStorage.setItem('tasker_balance', balance.toString());
-  }, [balance]);
-
-  useEffect(() => {
-    localStorage.setItem('tasker_tasks', JSON.stringify(tasks));
-  }, [tasks]);
-
-  // Network & Install Listeners
-  useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-    const handleInstallPrompt = (e: any) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
+  // Centralized persistence
+  const [appState, setAppState] = useState<AppState>(() => {
+    const saved = localStorage.getItem('tasker_app_state');
+    if (saved) return JSON.parse(saved);
+    return {
+      balance: 20.00,
+      tasks: [],
+      stats: { totalEarned: 0, tasksCompleted: 0, xp: 0, level: 1 },
+      lastSync: 0
     };
+  });
 
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    window.addEventListener('beforeinstallprompt', handleInstallPrompt);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Persistence Effect
+  useEffect(() => {
+    localStorage.setItem('tasker_app_state', JSON.stringify(appState));
+  }, [appState]);
+
+  // Online Detection
+  useEffect(() => {
+    const updateOnline = () => setIsOnline(navigator.onLine);
+    window.addEventListener('online', updateOnline);
+    window.addEventListener('offline', updateOnline);
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-      window.removeEventListener('beforeinstallprompt', handleInstallPrompt);
+      window.removeEventListener('online', updateOnline);
+      window.removeEventListener('offline', updateOnline);
     };
   }, []);
 
-  const fetchInitialTasks = useCallback(async () => {
-    if (!isOnline && tasks.length > 0) return;
-    setIsLoading(true);
-    setError(null);
+  const fetchTasks = useCallback(async (isBackground = false) => {
+    if (!isOnline) return;
+    setIsSyncing(true);
     try {
-      const generatedTasks = await generateInitialTasks();
-      const tasksWithIds = generatedTasks.map((task, index) => ({
-        ...task,
-        id: `${Date.now()}-${index}`
+      const generated = await generateInitialTasks();
+      const newTasks: Task[] = generated.map((t, i) => ({
+        ...t,
+        id: `gen-${Date.now()}-${i}`,
+        category: t.category || 'creative'
       }));
-      setTasks(prev => tasks.length === 0 ? tasksWithIds : [...tasksWithIds, ...prev].slice(0, 15));
+      
+      setAppState(prev => ({
+        ...prev,
+        tasks: [...prev.tasks.filter(t => !t.id.startsWith('gen-')), ...newTasks].slice(0, 15),
+        lastSync: Date.now()
+      }));
+      setToastMessage(isBackground ? "Neue Chancen verfügbar!" : "Marktplatz aktualisiert.");
     } catch (err) {
-      if (tasks.length === 0) {
-        setError("Aufgaben konnten nicht geladen werden.");
-      }
+      console.error("Fetch Error:", err);
     } finally {
-      setIsLoading(false);
+      setIsSyncing(false);
     }
-  }, [isOnline, tasks.length]);
+  }, [isOnline]);
 
   useEffect(() => {
-    if (tasks.length === 0) {
-      fetchInitialTasks();
+    const shouldRefresh = Date.now() - appState.lastSync > CACHE_TTL;
+    if (appState.tasks.length === 0 || shouldRefresh) {
+      fetchTasks(appState.tasks.length > 0);
     }
-  }, [fetchInitialTasks, tasks.length]);
+  }, [fetchTasks, appState.lastSync, appState.tasks.length]);
 
-  const handleAddTask = (description: string, reward: number) => {
-    if (balance >= reward) {
-      if (navigator.vibrate) navigator.vibrate(15);
-      const newTask: Task = {
-        id: Date.now().toString(),
-        description,
-        reward,
+  const handleCompleteTask = useCallback((id: string, reward: number) => {
+    setAppState(prev => {
+      const newXp = prev.stats.xp + XP_PER_TASK;
+      const nextThreshold = prev.stats.level * 100;
+      const leveledUp = newXp >= nextThreshold;
+      
+      return {
+        ...prev,
+        balance: prev.balance + reward,
+        tasks: prev.tasks.filter(t => t.id !== id),
+        stats: {
+          ...prev.stats,
+          tasksCompleted: prev.stats.tasksCompleted + 1,
+          totalEarned: prev.stats.totalEarned + reward,
+          xp: leveledUp ? newXp - nextThreshold : newXp,
+          level: leveledUp ? prev.stats.level + 1 : prev.stats.level
+        }
       };
-      setTasks(prev => [newTask, ...prev]);
-      setBalance(prev => prev - reward);
-    }
-  };
+    });
+    setToastMessage(`+${reward.toFixed(2)}€ & +10 XP!`);
+  }, []);
 
-  const handleCompleteTask = (id: string, reward: number) => {
-    if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
-    setTasks(prev => prev.filter(task => task.id !== id));
-    setBalance(prev => prev + reward);
-  };
+  const handleAddTask = useCallback((desc: string, rew: number) => {
+    const newTask: Task = { 
+      id: `user-${Date.now()}`, 
+      description: desc, 
+      reward: rew, 
+      category: 'creative' 
+    };
+    setAppState(prev => ({
+      ...prev,
+      balance: prev.balance - rew,
+      tasks: [newTask, ...prev.tasks]
+    }));
+    setToastMessage("Aufgabe veröffentlicht!");
+  }, []);
 
-  const handleInstall = async () => {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') {
-        setDeferredPrompt(null);
-      }
-    }
-  };
+  const handleShowDetails = useCallback((task: Task) => {
+    setSelectedTask(task);
+  }, []);
 
   return (
-    <div className="bg-slate-100 min-h-screen font-sans pb-safe selection:bg-emerald-100">
-      <div className="container mx-auto px-4 md:px-8 max-w-3xl pt-[env(safe-area-inset-top,1rem)]">
-        <Header 
-          balance={balance} 
-          isOnline={isOnline} 
-          onInstall={deferredPrompt ? handleInstall : undefined}
-          onRefresh={fetchInitialTasks}
-        />
-        
-        {!isOnline && (
-          <div className="mt-4 p-3 bg-amber-50 border border-amber-100 text-amber-800 text-[11px] font-bold rounded-xl text-center shadow-sm">
-            OFFLINE &bull; Daten werden lokal gespeichert
-          </div>
-        )}
+    <div className="bg-slate-100 min-h-screen font-sans pb-safe flex flex-col selection:bg-emerald-200">
+      <Header 
+        balance={appState.balance} 
+        isOnline={isOnline} 
+        onRefresh={() => fetchTasks(false)} 
+        isSyncing={isSyncing} 
+      />
+      
+      <ProgressBar stats={appState.stats} />
 
-        <main className="mt-6">
-          <TaskForm onAddTask={handleAddTask} balance={balance} />
+      <div className="container mx-auto px-4 md:px-8 max-w-3xl pt-8 flex-1">
+        <main className="space-y-12">
+          <TaskForm onAddTask={handleAddTask} balance={appState.balance} />
           
-          <div className="mt-8">
-            <h2 className="text-xl font-black text-slate-800 mb-4 px-1 flex items-center justify-between">
-              Marktplatz
-              {isLoading && <span className="text-[10px] text-emerald-500 animate-pulse">Synchronisiere...</span>}
-            </h2>
-            
-            <div className="space-y-4">
-              {isLoading && tasks.length === 0 ? (
-                <>
-                  <SkeletonTask />
-                  <SkeletonTask />
-                  <SkeletonTask />
-                </>
-              ) : error && tasks.length === 0 ? (
-                <div className="text-center p-8 bg-white rounded-3xl border-2 border-dashed border-slate-200">
-                  <p className="text-slate-400 font-bold mb-4">{error}</p>
-                  <button onClick={fetchInitialTasks} className="px-6 py-3 bg-emerald-600 text-white rounded-2xl font-black shadow-lg">Neu laden</button>
+          <section>
+            <div className="flex justify-between items-end mb-8 px-1">
+              <div>
+                <h2 className="text-3xl font-black text-slate-900 tracking-tighter leading-none">Marktplatz</h2>
+                <p className="text-xs font-bold text-slate-400 mt-2 uppercase tracking-widest">
+                  Echtzeit-Angebote &bull; {appState.tasks.length} aktiv
+                </p>
+              </div>
+              {isSyncing && (
+                <div className="flex items-center gap-2 text-[10px] font-black text-emerald-600 uppercase tracking-widest animate-pulse">
+                  <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
+                  Syncing
                 </div>
-              ) : (
-                <TaskList tasks={tasks} onCompleteTask={handleCompleteTask} />
               )}
             </div>
-          </div>
+            
+            <div className="space-y-5">
+              {appState.tasks.length === 0 && isSyncing ? (
+                <><SkeletonTask /><SkeletonTask /><SkeletonTask /></>
+              ) : (
+                <TaskList 
+                  tasks={appState.tasks} 
+                  onCompleteTask={handleCompleteTask} 
+                  onShowDetails={handleShowDetails}
+                />
+              )}
+            </div>
+          </section>
         </main>
-
-        <footer className="text-center mt-12 mb-8 text-slate-400 text-[9px] uppercase tracking-[0.3em] font-black opacity-50">
-          <p>Micro Tasker Pro &bull; Cloud Sync &bull; Secure</p>
+        
+        <footer className="mt-20 py-10 border-t border-slate-200 text-center">
+           <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.4em]">
+             Tasker Pro &bull; {new Date().getFullYear()} &bull; Performance Engine v2
+           </p>
         </footer>
       </div>
+
+      <TaskDetailsModal task={selectedTask} onClose={() => setSelectedTask(null)} />
+      {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage(null)} />}
     </div>
   );
 };

@@ -7,6 +7,7 @@ interface TaskFormProps {
 }
 
 const TaskForm: React.FC<TaskFormProps> = ({ onAddTask, balance }) => {
+  const [isOpen, setIsOpen] = useState(false);
   const [description, setDescription] = useState('');
   const [reward, setReward] = useState('');
   const [error, setError] = useState('');
@@ -16,15 +17,15 @@ const TaskForm: React.FC<TaskFormProps> = ({ onAddTask, balance }) => {
     const rewardValue = parseFloat(reward.replace(',', '.'));
 
     if (!description.trim()) {
-      setError('Die Beschreibung darf nicht leer sein.');
+      setError('Beschreibung fehlt');
       return;
     }
     if (isNaN(rewardValue) || rewardValue <= 0) {
-      setError('Die Belohnung muss eine positive Zahl sein.');
+      setError('Ungültiger Betrag');
       return;
     }
     if (rewardValue > balance) {
-        setError('Guthaben nicht ausreichend.');
+        setError('Zu wenig Guthaben');
         return;
     }
 
@@ -32,48 +33,62 @@ const TaskForm: React.FC<TaskFormProps> = ({ onAddTask, balance }) => {
     setDescription('');
     setReward('');
     setError('');
+    setIsOpen(false);
   };
 
+  if (!isOpen) {
+    return (
+      <button 
+        onClick={() => setIsOpen(true)}
+        className="w-full py-4 px-6 bg-white rounded-3xl border-2 border-dashed border-slate-200 text-slate-400 font-bold flex items-center justify-center gap-2 active:scale-[0.98] transition-all"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+          <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+        </svg>
+        Eigene Aufgabe ausschreiben
+      </button>
+    );
+  }
+
   return (
-    <div className="bg-white p-6 rounded-2xl shadow-sm mb-6 border border-gray-100">
-      <h2 className="text-lg font-bold text-gray-800 mb-4">Aufgabe erstellen</h2>
-      <form onSubmit={handleSubmit} className="space-y-4">
+    <div className="bg-white p-6 rounded-3xl shadow-xl border border-emerald-100 animate-in fade-in zoom-in duration-200">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-lg font-black text-slate-800">Neue Aufgabe</h2>
+        <button onClick={() => setIsOpen(false)} className="p-2 text-slate-400">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      
+      <form onSubmit={handleSubmit} className="space-y-5">
         <div>
-          <label htmlFor="description" className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1 ml-1">
-            Beschreibung
-          </label>
+          <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 ml-1">Beschreibung</label>
           <input
-            id="description"
             type="text"
-            enterKeyHint="next"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Was ist zu tun?"
-            className="w-full px-4 py-3 border border-gray-200 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+            placeholder="Was soll getan werden?"
+            className="w-full px-5 py-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-emerald-500 transition-all font-medium"
           />
         </div>
         <div>
-          <label htmlFor="reward" className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1 ml-1">
-            Belohnung (€)
-          </label>
+          <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 ml-1">Belohnung (€)</label>
           <input
-            id="reward"
             type="number"
             inputMode="decimal"
-            enterKeyHint="done"
             value={reward}
             onChange={(e) => setReward(e.target.value)}
-            placeholder="0.00"
-            step="0.01"
-            className="w-full px-4 py-3 border border-gray-200 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+            placeholder="1.50"
+            className="w-full px-5 py-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-emerald-500 transition-all font-bold text-emerald-600"
           />
         </div>
-        {error && <p className="text-xs font-bold text-red-500 ml-1">{error}</p>}
+        {error && <p className="text-xs font-bold text-red-500 animate-bounce">{error}</p>}
         <button
           type="submit"
-          className="w-full flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-lg text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] transition-all duration-200"
+          className="w-full py-4 bg-emerald-600 text-white font-black rounded-2xl shadow-lg shadow-emerald-200 active:scale-95 transition-all"
         >
-          Aufgabe veröffentlichen
+          Veröffentlichen
         </button>
       </form>
     </div>

@@ -6,6 +6,7 @@ interface HeaderProps {
   isOnline?: boolean;
   onInstall?: () => void;
   onRefresh?: () => void;
+  isSyncing?: boolean;
 }
 
 const WalletIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -14,7 +15,7 @@ const WalletIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
-const Header: React.FC<HeaderProps> = ({ balance, isOnline = true, onInstall, onRefresh }) => {
+const Header: React.FC<HeaderProps> = ({ balance, isOnline = true, onInstall, onRefresh, isSyncing }) => {
   return (
     <header className="bg-white/90 backdrop-blur-xl sticky top-0 z-50 -mx-4 px-4 py-4 md:mx-0 md:rounded-3xl shadow-lg shadow-slate-200/50 border-b md:border border-white/50 transition-all">
       <div className="container mx-auto flex justify-between items-center">
@@ -48,7 +49,8 @@ const Header: React.FC<HeaderProps> = ({ balance, isOnline = true, onInstall, on
           {onRefresh && (
             <button 
               onClick={onRefresh}
-              className="p-2.5 bg-slate-50 text-slate-500 rounded-2xl border border-slate-200 active:rotate-180 transition-transform duration-500"
+              disabled={isSyncing}
+              className={`p-2.5 bg-slate-50 text-slate-500 rounded-2xl border border-slate-200 active:scale-90 transition-all ${isSyncing ? 'animate-spin opacity-50' : ''}`}
               aria-label="Aktualisieren"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
